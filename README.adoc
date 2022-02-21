@@ -1,0 +1,203 @@
+= Spring Tips: Liquibase
+
+== Getting Started with Postgres
+
+Before we can do anything, we'll need a valid PostgreSQL database to which we can connect.
+You can run a Postgres instance in a Docker image. We'll need more than one database to develop, to simulate
+development (your local machine, `dev`) and production (`prod`) environments, for example. I have this handy little script that quickly spins up dummy PostgreSQL instances. Put this in a file called `postgres.sh`, and don't forget to run `chmod a+x postgres.sh` to make it executable. Add it to your `PATH` so that it's discoverable.
+
+.postgres.sh
+[source,shell,indent=0]
+----
+#!/usr/bin/env bash
+
+NAME=${1}-postgres
+PORT=${2:-5432}
+
+docker run --name  $NAME  \
+	-p ${PORT}:5432 \
+	-e POSTGRES_USER=user \
+	-e PGUSER=user \
+	-e POSTGRES_PASSWORD=pw \
+	postgres:latest
+
+----
+
+You can use it to create a development (`dev`) database, thusly:
+
+[source,shell,indent=0]
+----
+./postgres.sh dev 5500
+----
+
+This will spin up an instance of the PostgreSQL Docker image called `dev-postgres` and run it on port `5500`. If you don't specify a port, it'll use the default of `5432`. The username is `user` and the password is `pw`. You can connect to the instance using the `psql` CLI, thusly:
+
+[source,indent=0,shell]
+----
+PGPASSWORD=pw psql -U user -h localhost -p 5500 user
+----
+
+We'll need another PostgreSQL instance for our production (`prod`) build, too.
+
+[source,indent=0,shell]
+----
+PGPASSWORD=pw psql -U user -h localhost -p 5400 user
+----
+
+== Getting Started
+
+You've probably probably got a database with some schema on which you'd like to build.  So, you'll want to use that as a starting spot. Configure the Apache Maven build to use the `liquibase-maven-plugin`:
+
+[source,indent=0,xml]
+----
+<plugin>
+    <groupId>org.liquibase</groupId>
+    <artifactId>liquibase-maven-plugin</artifactId>
+    <version>4.5.0</version>
+    <configuration>
+        <propertyFile>
+            src/main/resources/liquibase.properties
+        </propertyFile>
+    </configuration>
+</plugin>
+----
+
+Once you've got that, specify a file called `src/main/resources/liquibase.properties`. In it, put:
+
+[source,indent=0,properties]
+----
+url=jdbc:postgresql://localhost:5500/user
+username=user
+password=pw
+driver=org.postgresql.Driver
+changeLogFile=src/main/resources/db/changelog/db.changelog-master.xml
+outputChangeLogFile=src/main/resources/db/changelog/generated.xml
+----
+
+
+The following Liquibase Maven plugin (_not_ Spring Boot) incantation connects to the schema of your choice and uses it to create a changelog whose contents it will write to whatever path we specify for `outputChangeLogFile` (`src/main/resources/db/changelog/generated.xml`).
+
+[source,shell]
+----
+mvn liquibase:generateChangeLog
+----
+
+The result will be in `src/main/resources/db/changelog/generated.xml`. Inspect it and you'll see it's created discrete actions and represented them (very verbosely) using XML. Rename
+`generated.xml` to `src/main/resources/db/changelog/changelog-v1.0.xml`. Spring Boot will automatically pick up the changelogs from `src/main/resources/db/changelog/db.changelog-master.xml`, so let's add an `include` directive to include `changelog-v1.0.xml`.
+[source,xml,indent=0]
+----
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext" xmlns:pro="http://www.liquibase.org/xml/ns/pro" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd http://www.liquibase.org/xml/ns/pro http://www.liquibase.org/xml/ns/pro/liquibase-pro-4.1.xsd http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+   <include file="db/changelog/changelog-v1.0.xml"/>
+</databaseChangeLog>
+----
+
+Alternatively, you could add everything from inside the outer most tag of `changelog-v1.0.xml` and add it to the body of `changelog.xml`, foregoing the  includes. This can be nice if you want to see everything in one place. It's also, I think, easier to follow the story if you're doing SQL formatted changelogs, which we'll explore momentarily.
+
+When Spring Boot starts, it will read this changelog and apply it to the Spring Boot `DataSource`. Youll need to specify the values used to connect to that `DataSource` in the Spring Boot environment. The easiest way to specify these values in a development environment is  `application.properties`:
+
+
+[source,indent=0,properties]
+----
+spring.datasource.username=user
+spring.datasource.password=pw
+spring.datasource.url=jdbc:postgresql://localhost:5500/user
+spring.liquibase.change-log=classpath:/db/changelog/db.changelog-master.xml
+----
+
+
+The Spring Boot application connects to the development database by default.
+
+
+
+
+== Making a Change
+
+Let's suppose we want to evolve the database schema, perhaps by adding a new column. There are two different ways to handle this: we could drive with the Liquibase changelogs, or we could derive the Liquibase chagelogs.  If we drive with Liquibase, then we evolve the database through additions to the Liquibase changelog. If we derive with Liquibase, then we evolve the database through additions to the SQL schema itself and we capture those changes as Liquibase changelogs. Either way, the result is that we should have a durable way to recover, enforce, and rollback that change to the schema. Let's first drive the changes with the Liquibase migration.
+
+Create a new file, `src/main/resources/db/changelog/changelog-v1.1.xml` with the following contents:
+
+
+[source,xml,indent=0]
+----
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <changeSet author="jlong" id="2022022105452668229700">
+        <addColumn tableName="articles">
+            <column name="published" type="timestamp"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>
+----
+
+
+We're using one of the Liquibase commands, `addColumn`, to add a column to a table.
+
+
+If writing these tedious XML files doesn't speak to ya (and who can blame ya?), then you'll be pleased to know that there's a way to derive the the changelog by inspecting the structure of a schema. We'll use the Maven plugin to do this. First, you need to delete `changelog-v1.1.xml` if you created it before. Then, we'll need to add some properties to our `liquibase.properties` to specify the baseline database (in this case our production database)  and the local, development database.
+
+[source,indent=0,properties]
+----
+url=jdbc:postgresql://localhost:5400/user
+username=user
+password=pw
+driver=org.postgresql.Driver
+changeLogFile=src/main/resources/db/changelog/db.changelog-master.xml
+
+outputChangeLogFile=src/main/resources/db/changelog/generated.xml
+diffChangeLogFile=src/main/resources/generated-diff.xml
+
+referenceUrl=jdbc:postgresql://localhost:5500/user
+referenceDriver=org.postgresql.Driver
+referenceUsername=user
+referencePassword=pw
+----
+
+Here, we've specified the original database (which is the baseline) and the updated database. Let's use the Maven plugin to capture the delta between those schema:
+
+[source,indent=0,shell]
+----
+mvn liquibase:diff
+----
+
+Liquibase writes out a change log in whatever path you've specified for `diffChangeLogFile`. Inspect the file and you'll see its virtually the same as  (but not indentical to) the changeset we wrote out by hand earlier. Rename the file to `src/main/resources/db/changelog/changelog-v1.2.xml`. Update `changelog.xml` to _not_ include `changelog-v1.1.xml` but to include both `changelog-v1.0.xml` and `changelog-v1.1.xml`.
+
+
+Now, the next time you run the Spring Boot application, Liquibase will attempt to teach that database all the new changes. When you next deploy your application to production, you'll have captured all the database migrations and they'll be applied automatically.
+
+
+
+
+== Rolling Back
+
+In the last example, we added a new column in an `addColumn` changeset. What happens if we want to back out of some changes to the schema. What if something's gone wrong and it won't work and we just need to know if our application has any hope of successfully running in production in again? We can always use Liquibase to _rollback_ changes made to the database schema. There are  a number of different ways to select which changeset rollbacks we apply, but the easiest is to simply execute `N` of the latest changeset rollbacks, like this:
+
+
+[source,shell,indent=0]
+----
+mvn liquibase:rollback -Dliquibase.rollbackCount=1
+----
+
+The `rollbackCount` number is arbitrary. I've chosen to simply rollback the very latest changeset.
+
+
+Now, you should see that the new column, `published`, no longer exists. Remember, the Maven plugin applies its actions to whatever you've specified in the `liquibase.properties` for the `url` key.
+
+== Initializing a Bean Only After the Application's `DataSource` Has Been Initialized with Liquibase
+
+You may have work that you want to execute after the Spring Boot application has started up and _after_ the Liquibase
+database migration has finished. Annotate the bean with `@DependsOnDatabaseInitialization`, like this:
+
+[source,java,indent=0]
+----
+    @Bean
+    @DependsOnDatabaseInitialization
+    ApplicationRunner runner(ArticleService service) {
+        return args -> service.findAll().forEach(System.out::println);
+    }
+----
+

@@ -1,0 +1,3 @@
+
+org.springframework.nativex.type.NativeConfiguration=\
+  com.example.liquibase.LiquibaseNativeHints
