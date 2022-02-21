@@ -44,6 +44,13 @@ We'll need another PostgreSQL instance for our production (`prod`) build, too.
 PGPASSWORD=pw psql -U user -h localhost -p 5400 user
 ----
 
+Once they're running, you can reset them using the following command:
+
+[source,shell,indent=0]
+-----
+drop table articles, comments, databasechangelog , databasechangeloglock;
+-----
+
 == Getting Started
 
 You've probably probably got a database with some schema on which you'd like to build.  So, you'll want to use that as a starting spot. Configure the Apache Maven build to use the `liquibase-maven-plugin`:
@@ -92,7 +99,7 @@ The result will be in `src/main/resources/db/changelog/generated.xml`. Inspect i
 </databaseChangeLog>
 ----
 
-Alternatively, you could add everything from inside the outer most tag of `changelog-v1.0.xml` and add it to the body of `changelog.xml`, foregoing the  includes. This can be nice if you want to see everything in one place. It's also, I think, easier to follow the story if you're doing SQL formatted changelogs, which we'll explore momentarily.
+Alternatively, you could add everything from inside the outer most tag of `changelog-v1.0.xml` and add it to the body of `changelog.sql`, foregoing the  includes. This can be nice if you want to see everything in one place. It's also, I think, easier to follow the story if you're doing SQL formatted changelogs, which we'll explore momentarily.
 
 When Spring Boot starts, it will read this changelog and apply it to the Spring Boot `DataSource`. Youll need to specify the values used to connect to that `DataSource` in the Spring Boot environment. The easiest way to specify these values in a development environment is  `application.properties`:
 
@@ -164,7 +171,7 @@ Here, we've specified the original database (which is the baseline) and the upda
 mvn liquibase:diff
 ----
 
-Liquibase writes out a change log in whatever path you've specified for `diffChangeLogFile`. Inspect the file and you'll see its virtually the same as  (but not indentical to) the changeset we wrote out by hand earlier. Rename the file to `src/main/resources/db/changelog/changelog-v1.2.xml`. Update `changelog.xml` to _not_ include `changelog-v1.1.xml` but to include both `changelog-v1.0.xml` and `changelog-v1.1.xml`.
+Liquibase writes out a change log in whatever path you've specified for `diffChangeLogFile`. Inspect the file and you'll see its virtually the same as  (but not indentical to) the changeset we wrote out by hand earlier. Rename the file to `src/main/resources/db/changelog/changelog-v1.2.xml`. Update `changelog.sql` to _not_ include `changelog-v1.1.xml` but to include both `changelog-v1.0.xml` and `changelog-v1.1.xml`.
 
 
 Now, the next time you run the Spring Boot application, Liquibase will attempt to teach that database all the new changes. When you next deploy your application to production, you'll have captured all the database migrations and they'll be applied automatically.
