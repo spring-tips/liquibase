@@ -133,4 +133,16 @@ Notice the errors? We need to build some smarts into our migration so that it do
 
 
 
+## Compute Delta
+
+#!/usr/bin/env bash
+
+#!/usr/bin/env bash
+
+mvn liquibase:diff \
+  -Dliquibase.diffChangeLogFile=diff.sql \
+  -Dliquibase.referenceUrl=jdbc:postgresql://mbp2021.local:5500/user \
+  -Dliquibase.referenceDriver=org.postgresql.Driver \
+  -Dliquibase.referenceUsername=user \
+  -Dliquibase.referencePassword=pw
 
