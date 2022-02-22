@@ -1,6 +1,7 @@
 # Script
 
 ## getting started with Postgres
+```shell
 #!/usr/bin/env bash
 
 NAME=${1}-postgres
@@ -18,8 +19,8 @@ postgres:latest
 ./postgres.sh prod 5400
 
 PGPASSWORD=pw psql -U user -h localhost -p 5500 user
-
 PGPASSWORD=pw psql -U user -h localhost -p 5400 user
+```
 
 ## Install the basic schema running the sql in src/main/resources/bootstrap.sql
 
@@ -87,6 +88,7 @@ record Comment(Long id, String text) {
 
 ## add Liquibase to the Maven build
 
+```xml
 <plugin>
     <groupId>org.liquibase</groupId>
     <artifactId>liquibase-maven-plugin</artifactId>
@@ -97,15 +99,16 @@ record Comment(Long id, String text) {
         </propertyFile>
     </configuration>
 </plugin>
-
+```
 ## Simple Liquibase Property File src/main/resources/liquibase.properties
-
+```properties
 url=jdbc:postgresql://localhost:5400/user
 username=user
 password=pw
 driver=org.postgresql.Driver
 changeLogFile=src/main/resources/db/changelog/changelog.sql
 outputChangeLogFile=src/main/resources/db/changelog/generated.sql
+```
 
 ## Bootstrap Liquibase Changelog
 
